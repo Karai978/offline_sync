@@ -9,8 +9,6 @@ COMPARABLE_TYPES = {
 
 
 def detect_conflicts(record, data, reference_values_json, fields_info=None):
-    """Détecte les conflits sur les champs scalaires ET sur les lignes
-    one2many (ex: order_line). many2many reste hors scope."""
     if not reference_values_json:
         return []
 
@@ -35,7 +33,11 @@ def detect_conflicts(record, data, reference_values_json, fields_info=None):
             continue
 
         if field_type == "many2many":
-            continue  # hors scope, comme avant
+            reference_ids = reference_values_json.get(field_name)
+            conflict = _detect_many2many_conflict(record, field_name, local_value, reference_ids)
+            if conflict:
+                conflicts.append(conflict)
+            continue
 
         reference_value = reference_values_json.get(field_name)
         local_norm = _normalize_value_for_type(local_value, field_type)
@@ -56,6 +58,39 @@ def detect_conflicts(record, data, reference_values_json, fields_info=None):
             })
 
     return conflicts
+
+
+def _detect_many2many_conflict(record, field_name, local_ids, reference_ids):
+    """Compare un champ many2many comme un ensemble d'ids (l'ordre n'a
+    pas d'importance). Même principe à deux conditions que les champs
+    scalaires : conflit seulement si Luck ET le serveur ont TOUS DEUX
+    changé la liste par rapport à la référence commune. Pas de merge
+    automatique des ajouts/retraits — résolution binaire comme le reste
+    du système (garder local / garder serveur en bloc)."""
+    if not isinstance(local_ids, list) or not isinstance(reference_ids, list):
+        return None
+
+    local_set = set(local_ids)
+    reference_set = set(reference_ids)
+
+    if local_set == reference_set:
+        return None  # Luck n'a rien changé sur ce champ
+
+    server_ids = record[field_name].ids
+    server_set = set(server_ids)
+
+    if server_set == reference_set:
+        return None  # le serveur n'a rien changé, pas de conflit
+
+    if local_set == server_set:
+        return None  # même résultat final des deux côtés, rien à arbitrer
+
+    return {
+        "field": field_name,
+        "local_value": sorted(local_set),
+        "server_value": sorted(server_set),
+        "server_write_date": _normalize_for_compare(record.write_date),
+    }
 
 
 def _detect_line_conflicts(record, field_name, local_lines, reference_lines, comodel_name):
