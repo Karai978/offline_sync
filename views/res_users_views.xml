@@ -1,0 +1,20 @@
+<odoo>
+  <record id="view_users_form_offline_sync" model="ir.ui.view">
+    <field name="name">res.users.form.offline.sync</field>
+    <field name="model">res.users</field>
+    <field name="inherit_id" ref="base.view_users_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//notebook" position="inside">
+        <page string="API Key Offline">
+          <group>
+            <field name="offline_sync_api_key" readonly="1"/>
+            <button name="action_generate_offline_sync_key"
+                    type="object"
+                    string="Generate a new API key"
+                    class="btn-primary"/>
+          </group>
+        </page>
+      </xpath>
+    </field>
+  </record>
+</odoo>
