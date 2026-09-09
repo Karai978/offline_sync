@@ -61,29 +61,28 @@ def detect_conflicts(record, data, reference_values_json, fields_info=None):
 
 
 def _detect_many2many_conflict(record, field_name, local_ids, reference_ids):
-    """Compare un champ many2many comme un ensemble d'ids (l'ordre n'a
-    pas d'importance). Même principe à deux conditions que les champs
-    scalaires : conflit seulement si Luck ET le serveur ont TOUS DEUX
-    changé la liste par rapport à la référence commune. Pas de merge
-    automatique des ajouts/retraits — résolution binaire comme le reste
-    du système (garder local / garder serveur en bloc)."""
     if not isinstance(local_ids, list) or not isinstance(reference_ids, list):
         return None
 
-    local_set = set(local_ids)
-    reference_set = set(reference_ids)
+    def extract_id(v):
+        if isinstance(v, (list, tuple)) and len(v) >= 1:
+            return v[0]
+        return v
+
+    local_set = set(extract_id(v) for v in local_ids)
+    reference_set = set(extract_id(v) for v in reference_ids)
 
     if local_set == reference_set:
-        return None  # Luck n'a rien changé sur ce champ
+        return None
 
     server_ids = record[field_name].ids
     server_set = set(server_ids)
 
     if server_set == reference_set:
-        return None  # le serveur n'a rien changé, pas de conflit
+        return None
 
     if local_set == server_set:
-        return None  # même résultat final des deux côtés, rien à arbitrer
+        return None
 
     return {
         "field": field_name,
@@ -94,12 +93,40 @@ def _detect_many2many_conflict(record, field_name, local_ids, reference_ids):
 
 
 def _detect_line_conflicts(record, field_name, local_lines, reference_lines, comodel_name):
-    """Compare les lignes one2many une par une, appariées par id.
-    Nouvelle ligne (pas d'id) : jamais de conflit, ignorée."""
+    """Compare les lignes one2many une par une, appariées par id."""
     conflicts = []
     reference_by_id = {l.get("id"): l for l in reference_lines if l.get("id")}
     server_by_id = {line.id: line for line in record[field_name]}
     server_write_date = _normalize_for_compare(record.write_date)
+
+    line_fields_info = {}
+    if comodel_name in record.env:
+        line_fields_info = record.env[comodel_name].fields_get()
+
+    def is_comparable(field_type):
+        # one2many niché : hors scope (mêmes limites que le champ
+        # racine order_line lui-même — pas de comparaison à deux niveaux
+        # d'imbrication). many2many/many2one/scalaires : comparables.
+        return field_type != "one2many"
+
+    def normalize_ref_or_local(value, field_type):
+        if field_type == "many2many":
+            if not isinstance(value, list):
+                return []
+            return sorted(_extract_id(v) for v in value)
+        if field_type == "datetime" and value:
+            return str(value).replace("T", " ")[:19]
+        if field_type == "date" and value:
+            return str(value)[:10]
+        return value
+
+    def normalize_server(server_line, sub_field, field_type):
+        if field_type == "many2many":
+            return sorted(server_line[sub_field].ids)
+        if field_type == "many2one":
+            val = server_line[sub_field]
+            return val.id if val else False
+        return _normalize_for_compare(server_line[sub_field])
 
     for local_line in local_lines:
         line_id = local_line.get("id")
@@ -114,9 +141,8 @@ def _detect_line_conflicts(record, field_name, local_lines, reference_lines, com
         is_deleted_locally = bool(local_line.get("_deleted"))
 
         if server_line is None:
-            # Le serveur a supprimé cette ligne entre-temps.
             if is_deleted_locally:
-                continue  # supprimée des deux côtés : pas de conflit
+                continue
             changed = any(
                 k not in ("id", "_deleted") and local_line.get(k) != reference_line.get(k)
                 for k in local_line
@@ -132,14 +158,19 @@ def _detect_line_conflicts(record, field_name, local_lines, reference_lines, com
             continue
 
         if is_deleted_locally:
-            # Il a supprimé la ligne ; le serveur l'a-t-il modifiée ?
             changed_fields = {}
             for sub_field, ref_val in reference_line.items():
                 if sub_field == "id" or sub_field not in server_line._fields:
                     continue
-                server_val = _normalize_for_compare(server_line[sub_field])
-                if server_val != ref_val:
-                    changed_fields[sub_field] = server_val
+                field_type = line_fields_info.get(sub_field, {}).get("type")
+                if not is_comparable(field_type):
+                    continue
+
+                ref_norm = normalize_ref_or_local(ref_val, field_type)
+                server_norm = normalize_server(server_line, sub_field, field_type)
+                if server_norm != ref_norm:
+                    changed_fields[sub_field] = server_norm
+
             if changed_fields:
                 conflicts.append({
                     "field": f"{field_name}[{line_id}]",
@@ -150,27 +181,48 @@ def _detect_line_conflicts(record, field_name, local_lines, reference_lines, com
                 })
             continue
 
-        # Ligne présente et non supprimée des deux côtés : sous-champ par sous-champ.
         for sub_field, local_val in local_line.items():
             if sub_field in ("id", "_deleted"):
                 continue
             if sub_field not in reference_line or sub_field not in server_line._fields:
                 continue
 
-            reference_val = reference_line.get(sub_field)
-            if local_val == reference_val:
-                continue  # non modifié par Luck
+            field_type = line_fields_info.get(sub_field, {}).get("type")
+            if not is_comparable(field_type):
+                continue
 
-            server_val = _normalize_for_compare(server_line[sub_field])
-            if server_val != reference_val:
+            reference_val = reference_line.get(sub_field)
+            local_norm = normalize_ref_or_local(local_val, field_type)
+            reference_norm = normalize_ref_or_local(reference_val, field_type)
+
+            if local_norm == reference_norm:
+                continue
+
+            server_norm = normalize_server(server_line, sub_field, field_type)
+            if server_norm != reference_norm:
                 conflicts.append({
                     "field": f"{field_name}[{line_id}].{sub_field}",
                     "local_value": local_val,
-                    "server_value": server_val,
+                    "server_value": server_norm,
                     "server_write_date": server_write_date,
                 })
 
     return conflicts
+
+
+def _extract_id(v):
+    if isinstance(v, (list, tuple)) and len(v) >= 1:
+        return v[0]
+    return v
+
+
+def _extract_id(v):
+    """Normalise un élément de liste many2many : accepte soit un id brut,
+    soit une paire [id, label] (format read_record() pour les many2many),
+    et retourne toujours l'id seul."""
+    if isinstance(v, (list, tuple)) and len(v) >= 1:
+        return v[0]
+    return v
 
 
 def _normalize_value_for_type(value, field_type):
