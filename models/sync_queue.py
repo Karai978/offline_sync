@@ -303,12 +303,17 @@ class SyncQueue(models.Model):
         prepared = {}
         fields_info = target_model.fields_get()
 
+        WRITABLE_FALSY_TYPES = ("boolean", "integer", "float", "monetary")
+
         for fname, value in data.items():
             finfo = fields_info.get(fname)
             if not finfo:
                 continue
 
-            if value is False or value is None or value == "":
+            if value is None:
+                continue
+
+            if (value is False or value == "") and finfo["type"] not in WRITABLE_FALSY_TYPES:
                 continue
 
             if finfo["type"] == "one2many" and isinstance(value, list):
@@ -316,7 +321,7 @@ class SyncQueue(models.Model):
             elif finfo["type"] == "many2many" and isinstance(value, list):
                 prepared[fname] = build_many2many_commands(value)
             elif finfo["type"] == "datetime" and value:
-                prepared[fname] = normalize_datetime(value)
+                prepared[fname] = normalize_datetime(value, self.env.user.tz)
             else:
                 prepared[fname] = value
 

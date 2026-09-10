@@ -38,7 +38,7 @@ class PurchaseDashboardController(http.Controller, OfflineSyncMixin):
         from odoo import fields as odoo_fields  # type: ignore
         from datetime import timedelta
 
-        PurchaseOrder = env["purchase.order"].sudo()
+        PurchaseOrder = env["purchase.order"]
         base_domain = self._resolve_action_domain(env, "purchase.order", action)
         today = odoo_fields.Date.context_today(env.user)
 
@@ -85,7 +85,7 @@ class PurchaseDashboardController(http.Controller, OfflineSyncMixin):
             [("state", "=", "sent"), ("date_order", ">=", str(week_ago))]
         )
 
-        PurchaseOrderLine = env["purchase.order.line"].sudo()
+        PurchaseOrderLine = env["purchase.order.line"]
         lines = PurchaseOrderLine.search([
             ("order_id.state", "in", ("purchase", "done")),
             ("date_planned", "!=", False),

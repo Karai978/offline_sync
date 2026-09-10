@@ -6,16 +6,30 @@ Réutilisables par n'importe quel modèle du module, pour n'importe quel
 champ Odoo — rien ici n'est spécifique à un modèle en particulier.
 """
 
+import pytz #type: ignore
+from datetime import datetime
 
-def normalize_datetime(value):
-    """Convertit le format HTML natif (YYYY-MM-DDTHH:MM) envoyé par la PWA
-    vers le format attendu par Odoo (YYYY-MM-DD HH:MM:SS)."""
+
+def normalize_datetime(value, tz_name=None):
+    """Convertit le format HTML natif (YYYY-MM-DDTHH:MM), interprété dans le
+    fuseau horaire de l'utilisateur (tz_name), vers le format UTC attendu
+    par Odoo (YYYY-MM-DD HH:MM:SS). Sans tz_name, suppose que la valeur est
+    déjà en UTC (comportement de repli, pas une conversion silencieuse)."""
     if not value:
         return value
+
     value = value.replace("T", " ")
     if len(value) == 16:  # "YYYY-MM-DD HH:MM" sans les secondes
         value += ":00"
-    return value
+
+    try:
+        naive_local = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value  # format inattendu : on ne bloque pas la synchro pour ça
+
+    user_tz = pytz.timezone(tz_name) if tz_name else pytz.utc
+    localized = user_tz.localize(naive_local)
+    return localized.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_raw(value):

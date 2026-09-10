@@ -30,7 +30,7 @@ class DatabaseController(http.Controller, OfflineSyncMixin):
             return self._cors_response(json.dumps({"error": "Modèle invalide"}), status=400)
 
         env = request.env(user=user.id)
-        Model = env[model].sudo()
+        Model = env[model]
 
         records = Model.search([], limit=5000)
 
@@ -119,7 +119,7 @@ class DatabaseController(http.Controller, OfflineSyncMixin):
             return self._cors_response(json.dumps({"error": "Paramètres invalides"}), status=400)
 
         env = request.env(user=user.id)
-        Model = env[model]  # toujours sans .sudo()
+        Model = env[model]
 
         try:
             record = Model.browse(int(id))
@@ -154,7 +154,7 @@ class DatabaseController(http.Controller, OfflineSyncMixin):
                 related_model = finfo.get("relation")
                 if related_model and related_model in env:
                     ids = data[fname]
-                    records = env[related_model].sudo().browse(ids)
+                    records = env[related_model].browse(ids)
                     data[fname] = [[r.id, r.display_name] for r in records if r.exists()]
                 else:
                     data[fname] = []
@@ -170,7 +170,7 @@ class DatabaseController(http.Controller, OfflineSyncMixin):
                     f for f, fi in sub_fields_info.items()
                     if fi.get("type") in (self.SUPPORTED_TYPES - {"one2many"}) and f not in self.IGNORED_FIELDS
                 ]
-                lines = env[sub_model].sudo().browse(line_ids).read(sub_field_names)
+                lines = env[sub_model].browse(line_ids).read(sub_field_names)
                 for line in lines:
                     for lf, lfi in sub_fields_info.items():
                         if lf in line and lfi.get("type") == "many2one" and line[lf]:
