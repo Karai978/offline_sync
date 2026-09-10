@@ -1,10 +1,6 @@
 """Fonctions utilitaires de sérialisation JSON, partagées par les modèles
 et les contrôleurs du module.
 
-Avant ce fichier, la même logique était copiée-collée à l'identique dans
-common.py (contrôleurs), sync_queue.py et sync_conflict.py (modèles).
-Elle vit maintenant à un seul endroit.
-
 Aucune dépendance à l'ORM Odoo — pures fonctions Python, utilisables
 depuis n'importe quel modèle ou contrôleur du module sans rien dupliquer.
 """
