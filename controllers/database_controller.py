@@ -175,12 +175,7 @@ class DatabaseController(http.Controller, OfflineSyncMixin):
                     for lf, lfi in sub_fields_info.items():
                         if lf in line and lfi.get("type") == "many2one" and line[lf]:
                             line[lf] = line[lf][0]
-                        elif lfi.get("type") == "many2many" and line[lf]:
-                            related_model = lfi.get("relation")
-                            if related_model and related_model in env:
-                                related_records = env[related_model].sudo().browse(line[lf])
-                                line[lf] = [[r.id, r.display_name] for r in related_records if r.exists()]
-                                data[fname] = lines
+                data[fname] = lines
 
         data = self._json_safe(data)
 
